@@ -1,0 +1,17 @@
+ABT : Another Backup Tool
+
+Cet ensemble de scripts a été conçu pour aider la création et la gestion
+des sauvegardes système. Cela permet de définir :
+        les emplacements à sauvegarder ;
+        où les sauvegarder ;
+        de quelle manière.
+
+Le répertoire conf est conçu à la façon Debian :
+        conf/places-available -> Définition des emplacements à sauvegarder
+        conf/places-enabled   -> Quels emplacements sauvegarder réellement.
+
+Pour activer une sauvegarde il est important de créer un lien symbolique
+(symlink) de conf/places-available/mon-emplacement vers
+conf/places-enabled/mon-emplacement :
+$ ln -s /etc/abt/conf/places-available/my-place /etc/abt/conf/places-enabled/
+

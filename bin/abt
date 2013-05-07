@@ -1,0 +1,116 @@
+#!/bin/sh
+#
+# abt : Another Backup Tool
+# Written by Adrien Poupin ()
+
+# La configuration se trouve dans $CONF_DIR/abt.conf
+# Chaque emplacement (place) est décrit dans $CONF_DIR/places-available
+# Chaque emplacement est activé dans $CONF_DIR/places-enabled
+# 
+# L'usage est donc de faire un lien symbolique (symlink) 
+# de places-available vers places-enabled.
+CONF_DIR=~/dev/abt/conf
+MAIN_CONF=abt.conf
+PLACES_DIR=$CONF_DIR/places-enabled
+
+LOGDIR=~/dev/abt/log
+LOG=cat >> $LOGDIR/abt.log
+
+# Default values
+NAME=abt
+VERSION=1.0
+DESC="Another Backup Tool"
+DEFAULT_PACKAGING=rsync
+DEFAULT_CRYPT=no
+DEFAULT_SEND_METHOD=rsync
+DEFAULT_SEND_BOOL=false # by default, don't send through the net.
+DEFAULT_SEND_DEST_HOST=localhost
+DEFAULT_SEND_DEST_USER=root
+DEFAULT_SEND_DEST_DIR=/
+
+# Import functions
+BIN_DIR=.
+if [ -f $BIN_DIR/functions.sh ]; then
+    . $BIN_DIR/functions.sh
+fi
+
+test_config() {
+    
+    # Getting the config file
+    
+    if [ -f $CONF_DIR/$MAIN_CONF ]; then
+        . $CONF_DIR/$MAIN_CONF
+    fi
+}
+
+update_planifications() {
+    for file in $PLACES_DIR/* ; do
+    {
+        if [ -f $file ]; then
+            . $file
+        fi
+        
+        # PERIOD, DIRS_ORIG and PLACE_NAME must be defined in
+        # the config file.
+        if [ -z "$PLACE_NAME" ]; then
+            echo "$file: PLACE_NAME not defined. Exiting."
+            exit 1
+        fi
+        echo -n "Planning $PLACE_NAME... "
+
+        if [ -z "$DIRS_ORIG" ]; then
+            echo "$file: DIRS_ORIG not defined. Exiting."
+            exit 1
+        fi
+
+        if [ -z "$PERIOD" ]; then
+            echo "$file: PERIOD not defined. Exiting."
+            exit 1
+        fi
+        
+        # tmpfile=$$_crontab
+        # crontab -l > $TMP/$tmpfile
+        # modification de $TMP/$tmpfile
+        # crontab $TMP/$tmpfile
+        # rm -f $TMP/$tmpfile
+        
+        echo "ok !"
+        unset PLACE_NAME PERIOD DIRS_ORIG PACKAGING DIRS_DEST \
+            DIRS_BACKUP
+    }; done
+    
+}
+
+case "$1" in
+        update)
+                echo "$DESC ($VERSION) "
+                echo -n "Updating $NAME planifications: "
+                test_config
+                update_planifications
+                echo "."
+                ;;
+
+        backup)
+                echo "$DESC ($VERSION)"
+                echo "Backup not yet implemented!"
+                exit 1
+                ;;
+
+        configtest|testconfig)
+                echo -n "Testing $DESC configuration: "
+                if test_config; then
+                        echo "$NAME."
+                else
+                        exit $?
+                fi
+                ;;
+
+        *)
+                echo "Usage: $NAME {update|backup|configtest}" >&2
+                exit 1
+                ;;
+esac
+
+
+exit 0
+
