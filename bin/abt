@@ -9,12 +9,11 @@
 # 
 # L'usage est donc de faire un lien symbolique (symlink) 
 # de places-available vers places-enabled.
+
 CONF_DIR=~/dev/abt/conf
 MAIN_CONF=abt.conf
 PLACES_DIR=$CONF_DIR/places-enabled
-
-LOGDIR=~/dev/abt/log
-LOG=cat >> $LOGDIR/abt.log
+LOGFILE=$CONF_DIR/../log/abt.log
 
 # Default values
 NAME=abt
@@ -22,25 +21,72 @@ VERSION=1.0
 DESC="Another Backup Tool"
 DEFAULT_PACKAGING=rsync
 DEFAULT_CRYPT=no
-DEFAULT_SEND_METHOD=rsync
 DEFAULT_SEND_BOOL=false # by default, don't send through the net.
+DEFAULT_SEND_METHOD=ssh
 DEFAULT_SEND_DEST_HOST=localhost
 DEFAULT_SEND_DEST_USER=root
 DEFAULT_SEND_DEST_DIR=/
+DEFAULT_FOLLOW_SYM_LINKS=false
+
+log(){
+    message="$@"
+    echo $message
+    echo "[`date +'%y-%m-%d %H:%M:%S'`]" $message >>$LOGFILE
+}
 
 # Import functions
-BIN_DIR=.
+BIN_DIR=`pwd`
 if [ -f $BIN_DIR/functions.sh ]; then
     . $BIN_DIR/functions.sh
 fi
 
 test_config() {
+    # cd to CONF_DIR to enable sourcing in conf files
+    cd $CONF_DIR
     
     # Getting the config file
     
     if [ -f $CONF_DIR/$MAIN_CONF ]; then
         . $CONF_DIR/$MAIN_CONF
     fi
+}
+
+get_place_save_command() {
+    # Get origin directories into a table
+    dirs_orig_table="`echo \"$DIRS_ORIG\" | sed 's/\(,\)/ /g'`"
+    #log "dirs_orig_table = $dirs_orig_table" # for debug
+
+    # If DIRS_DEST is null, get SEND_DEST_DIR
+    [ -z "$DIRS_DEST" ] && dirs_dest=$SEND_DEST_DIR || \
+        dirs_dest=$DIRS_DEST
+    
+    case "$PACKAGING" in
+        rsync)
+            # If there is only one destination, the command is
+            # quite simple. The number of directories is
+            # the number of commas plus one.
+            if [ `echo $DIRS_ORIG | grep -c ","` -eq 0 ]; then
+                SAVE_COMMAND="rsync -rltgoDv --del --ignore-errors --force $DIRS_ORIG $dirs_dest"
+            else
+                SAVE_COMMAND="for dir in $dirs_orig_table ; do rsync -rltgoDv --del --ignore-errors --force \$dir $dirs_dest ; done"
+            fi
+            ;;
+        git)
+            log "$file: Packaging using Git not yet implemented."
+            return 1
+            ;;
+        svn)
+            log "$file: Packaging using SVN not yet implemented."
+            return 1
+            ;;
+        duplicity)
+            log "$file: Packaging using Duplicity not implemented. Try Rsync instead."
+            return 1
+            ;;
+        *)
+            log "$file: Unknown packaging $PACKAGING. Exiting."
+            return 1
+    esac
 }
 
 update_planifications() {
@@ -53,20 +99,30 @@ update_planifications() {
         # PERIOD, DIRS_ORIG and PLACE_NAME must be defined in
         # the config file.
         if [ -z "$PLACE_NAME" ]; then
-            echo "$file: PLACE_NAME not defined. Exiting."
-            exit 1
+            log "$file: PLACE_NAME not defined. Exiting."
+            return 1
         fi
-        echo -n "Planning $PLACE_NAME... "
 
         if [ -z "$DIRS_ORIG" ]; then
-            echo "$file: DIRS_ORIG not defined. Exiting."
-            exit 1
+            log "$file: DIRS_ORIG not defined. Exiting."
+            return 1
         fi
 
         if [ -z "$PERIOD" ]; then
-            echo "$file: PERIOD not defined. Exiting."
-            exit 1
+            log "$file: PERIOD not defined. Exiting."
+            return 1
         fi
+        
+        # Parsing PERIOD, which gives us the method used to
+        # plan the saving process.
+        planning_method=`echo $PERIOD | awk '{print $1;}'`
+        log "Planning $PLACE_NAME with $planning_method..."
+
+        # Get save command
+        SAVE_COMMAND=
+        get_place_save_command || return 1
+        log $SAVE_COMMAND
+        # Update planning
         
         # tmpfile=$$_crontab
         # crontab -l > $TMP/$tmpfile
@@ -74,32 +130,69 @@ update_planifications() {
         # crontab $TMP/$tmpfile
         # rm -f $TMP/$tmpfile
         
-        echo "ok !"
+        log "ok !"
         unset PLACE_NAME PERIOD DIRS_ORIG PACKAGING DIRS_DEST \
             DIRS_BACKUP
     }; done
-    
+    return 0;
 }
 
 case "$1" in
         update)
                 echo "$DESC ($VERSION) "
-                echo -n "Updating $NAME planifications: "
-                test_config
-                update_planifications
-                echo "."
+                log "Updating $NAME planifications..."
+                sleep 0.5
+                test_config || exit $?
+                update_planifications || exit $?
                 ;;
 
         backup)
                 echo "$DESC ($VERSION)"
-                echo "Backup not yet implemented!"
+                log "Backup not yet implemented!"
                 exit 1
                 ;;
-
+        
+        save)
+                echo "$DESC ($VERSION)"
+                sleep 0.5
+                test_config || exit $?
+                if [ -z "$2" ]; then
+                    read -r -p "Do you want to save all places [y/N] ?" confirm
+                    case $confirm in
+                        [yY][eE][sS]|[yY])
+                            get_place_save_command # TODO : Il faut parser chaque place avant
+                            sh -c "$SAVE_COMMAND" || exit 1
+                            ;;
+                        *)
+                            log "Quit."
+                            exit 1
+                            ;;
+                    esac
+                else
+                    # There is only one place to save ($2).
+                    place_found=0
+                    for file in $PLACES_DIR/* ; do
+                    {
+                        if [ -f $file ]; then
+                            . $file
+                        fi
+                        if [ "$PLACE_NAME" = "$2" ]; then
+                            place_found=1
+                            get_place_save_command
+                            log "$SAVE_COMMAND"
+                            sh -c "$SAVE_COMMAND" || exit 1
+                        fi
+                        
+                    }; done
+                    [ $place_found -eq 0 ] && log "Place $2 not found!" && exit 1
+                fi
+                
+                ;;
+                
         configtest|testconfig)
-                echo -n "Testing $DESC configuration: "
+                log "Testing $DESC configuration: "
                 if test_config; then
-                        echo "$NAME."
+                        log "$NAME."
                 else
                         exit $?
                 fi
