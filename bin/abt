@@ -89,6 +89,28 @@ get_place_save_command() {
     esac
 }
 
+# update_crontab :
+# This function assumes the following vars are declared :
+# PERIOD, PLACE_NAME, planning_options and SAVE_COMMAND
+update_crontab() {
+    # Get the crontab in a temporary file
+    tmpfile=`mktemp` || return 1
+    crontab -l > $tmpfile || return 1
+    
+    # mofify the crontab line :
+    # 1) delete the two lines for PLANE_NAME (if already exist)
+    sed -n -i '/^# abt -- home -- DO NOT MODIFY THIS LINE$/,+1d;p' $tmpfile || return 1
+
+    # 2) then add the right lines in the temp file
+    echo -n "# abt -- $PLACE_NAME -- DO NOT MODIFY THIS LINE\n$planning_options $SAVE_COMMAND\n" >> $tmpfile || return 1
+    
+    # 3) replacing the crontab
+    crontab $tmpfile || return 1
+    rm -f $tmpfile
+    
+    return 0
+}
+
 update_planifications() {
     for file in $PLACES_DIR/* ; do
     {
@@ -116,21 +138,28 @@ update_planifications() {
         # Parsing PERIOD, which gives us the method used to
         # plan the saving process.
         planning_method=`echo $PERIOD | awk '{print $1;}'`
-        log "Planning $PLACE_NAME with $planning_method..."
+        planning_options=`echo $PERIOD | sed 's/^[a-z A-Z 0-9]* \(.*\)/\1/g'`
 
         # Get save command
         SAVE_COMMAND=
         get_place_save_command || return 1
-        log $SAVE_COMMAND
-        # Update planning
+
+        # Update planning with cron, anacron or at.
+        # Other possibilities ? (initrc ?)
+        case $planning_method in
+            cron|crontab)
+                update_crontab
+                log "- added $PLACE_NAME in crontab"
+                ;;
+            anacron|anacrontab)
+                log "- place $PLACE_NAME not covered yet (anacron)"
+                ;;
+            *)
+                log "Unknown planning method : $planning_method. Exiting."
+                return 1;
+                ;;
+        esac
         
-        # tmpfile=$$_crontab
-        # crontab -l > $TMP/$tmpfile
-        # modification de $TMP/$tmpfile
-        # crontab $TMP/$tmpfile
-        # rm -f $TMP/$tmpfile
-        
-        log "ok !"
         unset PLACE_NAME PERIOD DIRS_ORIG PACKAGING DIRS_DEST \
             DIRS_BACKUP
     }; done
@@ -160,7 +189,8 @@ case "$1" in
                     read -r -p "Do you want to save all places [y/N] ?" confirm
                     case $confirm in
                         [yY][eE][sS]|[yY])
-                            get_place_save_command # TODO : Il faut parser chaque place avant
+                            log "Saving all places not yet implemented."
+                            #get_place_save_command # TODO : Il faut parser chaque place avant
                             sh -c "$SAVE_COMMAND" || exit 1
                             ;;
                         *)
@@ -199,7 +229,7 @@ case "$1" in
                 ;;
 
         *)
-                echo "Usage: $NAME {update|backup|configtest}" >&2
+                echo "Usage: $NAME {update|save [place]|backup|configtest}" >&2
                 exit 1
                 ;;
 esac
