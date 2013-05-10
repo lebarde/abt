@@ -4,13 +4,15 @@
 __LIBABT_LOGGING_DEFAULT_LOGLEVEL=warn
 
 __libabt_logging_get_message() {
-    echo "[`date +'%y-%m-%d %H:%M:%S'`] $@"
+    echo "[`date +'%y-%m-%d %H:%M:%S'`] $*"
 }
 
 logdebug() {
     case "$LOGLEVEL" in
         debug)
-            __libabt_logging_get_message "[debug] $@" >> $LOGFILE
+            __libabt_logging_get_message "[debug] $*" >> $LOGFILE
+            
+#            __libabt_logging_get_message "[debug] $input" >> $LOGFILE
             ;;
         *)
             # Do nothing
@@ -22,7 +24,7 @@ logdebug() {
 loginfo() {
     case "$LOGLEVEL" in
         debug|info)
-            __libabt_logging_get_message "[info] $@" >> $LOGFILE
+            __libabt_logging_get_message "[info] $*" >> $LOGFILE
             echo "$@"
             ;;
         *)
@@ -35,7 +37,7 @@ loginfo() {
 logwarn() {
     case "$LOGLEVEL" in
         debug|info|warn|"")
-            __libabt_logging_get_message "[warning] $@" >> $LOGFILE
+            __libabt_logging_get_message "[warning] $*" >> $LOGFILE
             echo "Warning: $@"
             ;;
         *)
@@ -48,7 +50,7 @@ logwarn() {
 logerr() {
     case "$LOGLEVEL" in
         debug|info|warn|error)
-            __libabt_logging_get_message "[error] $@" >> $LOGFILE
+            __libabt_logging_get_message "[error] $*" >> $LOGFILE
             echo "Error: $@" 1>&2 
             ;;
         *)
@@ -56,6 +58,9 @@ logerr() {
             exit 0
             ;;
     esac
+}
+logerror() {
+    logerr $@
 }
 
 logcrit() {

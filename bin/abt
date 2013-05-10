@@ -10,11 +10,12 @@
 # L'usage est donc de faire un lien symbolique (symlink) 
 # de places-available vers places-enabled.
 
-CONF_DIR=~/dev/abt/conf
+CONF_DIR=/home/adrien/dev/abt/conf
 MAIN_CONF=abt.conf
 PLACES_DIR=$CONF_DIR/places-enabled
 LOGFILE=$CONF_DIR/../log/abt.log
 LOGLEVEL=debug # debug, info, warn, error, critical
+DEFAULT_ANACRONTAB=/etc/anacrontab
 
 # Default values
 NAME=abt
@@ -28,6 +29,7 @@ DEFAULT_SEND_DEST_HOST=localhost
 DEFAULT_SEND_DEST_USER=root
 DEFAULT_SEND_DEST_DIR=/
 DEFAULT_FOLLOW_SYM_LINKS=false
+DEFAULT_ANACRON_TIMING=5
 
 # Include other functions
 DIRNAME=`dirname $0`
@@ -101,8 +103,8 @@ update_crontab() {
     crontab -l > $tmpfile
     
     # mofify the crontab line :
-    # 1) delete the two lines for PLANE_NAME (if already exist)
-    sed -n -i '/^# abt -- home -- DO NOT MODIFY THIS LINE$/,+1d;p' $tmpfile || return 1
+    # 1) delete the two lines for PLACE_NAME (if already exist)
+    sed -n -i "/^# abt -- $PLACE_NAME -- DO NOT MODIFY THIS LINE$/,+1d;p" $tmpfile || return 1
 
     # 2) then add the right lines in the temp file
     echo -n "# abt -- $PLACE_NAME -- DO NOT MODIFY THIS LINE\n$planning_options $SAVE_COMMAND\n" >> $tmpfile || return 1
@@ -113,6 +115,42 @@ update_crontab() {
     logdebug "Crontab updated for $PLACE_NAME."
     return 0
 }
+
+
+# update_anacrontab :
+# see update_crontab (similar task)
+update_anacrontab() {
+    logdebug "Starting to update anacron for $PLACE_NAME..."
+    tmpfile=`mktemp` || return 1
+
+    cat $DEFAULT_ANACRONTAB > $tmpfile
+
+    sed -n -i "/^# abt -- $PLACE_NAME -- DO NOT MODIFY THIS LINE/,+1d;p" $tmpfile || return 1
+
+    # If the user forgets the minutes' option, adding our default value
+    # Get the second word in $planning_options
+    if [ -z "`echo $planning_options | cut -d " " -f 2`" ]; then
+        logwarn "Anacron minutes (2nd arg) not set in $PLACE_NAME. Using default value $DEFAULT_ANACRON_TIMING."
+        anacron_minutes=$DEFAULT_ANACRON_TIMING
+    fi
+    
+    # The planning options need a name/commentary -> adding "abt/$PLACE_NAME"
+    echo -n "# abt -- $PLACE_NAME -- DO NOT MODIFY THIS LINE\n$planning_options $anacron_minutes abt-$PLACE_NAME $SAVE_COMMAND\n" >> $tmpfile || return 1
+    
+    if [ !`anacron -T "$tmpfile"` ]; then
+        logdebug "The anacrontab is correct. Replacing."
+        mv -f $tmpfile $DEFAULT_ANACRONTAB
+    else
+        logerr "Bad anacrontab."
+        cat $tmpfile >> $LOGFILE
+    fi
+
+    rm -f $tmpfile
+    logdebug "Anacrontab updated for $PLACE_NAME."
+
+    unset default_anacron_minutes
+}
+
 
 update_planifications() {
     for file in $PLACES_DIR/* ; do
@@ -155,7 +193,8 @@ update_planifications() {
                 loginfo "- added $PLACE_NAME in crontab"
                 ;;
             anacron|anacrontab)
-                loginfo "- place $PLACE_NAME not covered yet (anacron)"
+                update_anacrontab || return 1
+                loginfo "- added $PLACE_NAME in anacron tab"
                 ;;
             *)
                 logerror "Unknown planning method : $planning_method. Exiting."
