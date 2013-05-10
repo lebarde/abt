@@ -14,6 +14,7 @@ CONF_DIR=~/dev/abt/conf
 MAIN_CONF=abt.conf
 PLACES_DIR=$CONF_DIR/places-enabled
 LOGFILE=$CONF_DIR/../log/abt.log
+LOGLEVEL=debug # debug, info, warn, error, critical
 
 # Default values
 NAME=abt
@@ -28,11 +29,9 @@ DEFAULT_SEND_DEST_USER=root
 DEFAULT_SEND_DEST_DIR=/
 DEFAULT_FOLLOW_SYM_LINKS=false
 
-log(){
-    message="$@"
-    echo $message
-    echo "[`date +'%y-%m-%d %H:%M:%S'`]" $message >>$LOGFILE
-}
+# Include other functions
+DIRNAME=`dirname $0`
+. $DIRNAME/libabt-logging.sh || { echo "Include problem. Exiting."; exit 2; }
 
 # Import functions
 BIN_DIR=`pwd`
@@ -54,7 +53,7 @@ test_config() {
 get_place_save_command() {
     # Get origin directories into a table
     dirs_orig_table="`echo \"$DIRS_ORIG\" | sed 's/\(,\)/ /g'`"
-    #log "dirs_orig_table = $dirs_orig_table" # for debug
+    logdebug "dirs_orig_table = $dirs_orig_table"
 
     # If DIRS_DEST is null, get SEND_DEST_DIR
     [ -z "$DIRS_DEST" ] && dirs_dest=$SEND_DEST_DIR || \
@@ -72,19 +71,19 @@ get_place_save_command() {
             fi
             ;;
         git)
-            log "$file: Packaging using Git not yet implemented."
+            logcrit "$file: Packaging using Git not yet implemented."
             return 1
             ;;
         svn)
-            log "$file: Packaging using SVN not yet implemented."
+            logcrit "$file: Packaging using SVN not yet implemented."
             return 1
             ;;
         duplicity)
-            log "$file: Packaging using Duplicity not implemented. Try Rsync instead."
+            logcrit "$file: Packaging using Duplicity not implemented. Try Rsync instead."
             return 1
             ;;
         *)
-            log "$file: Unknown packaging $PACKAGING. Exiting."
+            logerr "$file: Unknown packaging $PACKAGING. Exiting."
             return 1
     esac
 }
@@ -93,9 +92,13 @@ get_place_save_command() {
 # This function assumes the following vars are declared :
 # PERIOD, PLACE_NAME, planning_options and SAVE_COMMAND
 update_crontab() {
+    logdebug "Starting to update crontab for $PLACE_NAME..."
     # Get the crontab in a temporary file
     tmpfile=`mktemp` || return 1
-    crontab -l > $tmpfile || return 1
+    
+    # Warning : crontab -l returns 1 if there is no
+    # crontab for that user.
+    crontab -l > $tmpfile
     
     # mofify the crontab line :
     # 1) delete the two lines for PLANE_NAME (if already exist)
@@ -107,7 +110,7 @@ update_crontab() {
     # 3) replacing the crontab
     crontab $tmpfile || return 1
     rm -f $tmpfile
-    
+    logdebug "Crontab updated for $PLACE_NAME."
     return 0
 }
 
@@ -121,17 +124,17 @@ update_planifications() {
         # PERIOD, DIRS_ORIG and PLACE_NAME must be defined in
         # the config file.
         if [ -z "$PLACE_NAME" ]; then
-            log "$file: PLACE_NAME not defined. Exiting."
+            logerror "$file: PLACE_NAME not defined. Exiting."
             return 1
         fi
 
         if [ -z "$DIRS_ORIG" ]; then
-            log "$file: DIRS_ORIG not defined. Exiting."
+            logerror "$file: DIRS_ORIG not defined. Exiting."
             return 1
         fi
 
         if [ -z "$PERIOD" ]; then
-            log "$file: PERIOD not defined. Exiting."
+            logerror "$file: PERIOD not defined. Exiting."
             return 1
         fi
         
@@ -146,16 +149,16 @@ update_planifications() {
 
         # Update planning with cron, anacron or at.
         # Other possibilities ? (initrc ?)
-        case $planning_method in
+        case "$planning_method" in
             cron|crontab)
-                update_crontab
-                log "- added $PLACE_NAME in crontab"
+                update_crontab || return 1
+                loginfo "- added $PLACE_NAME in crontab"
                 ;;
             anacron|anacrontab)
-                log "- place $PLACE_NAME not covered yet (anacron)"
+                loginfo "- place $PLACE_NAME not covered yet (anacron)"
                 ;;
             *)
-                log "Unknown planning method : $planning_method. Exiting."
+                logerror "Unknown planning method : $planning_method. Exiting."
                 return 1;
                 ;;
         esac
@@ -169,7 +172,7 @@ update_planifications() {
 case "$1" in
         update)
                 echo "$DESC ($VERSION) "
-                log "Updating $NAME planifications..."
+                loginfo "Updating $NAME planifications..."
                 sleep 0.5
                 test_config || exit $?
                 update_planifications || exit $?
@@ -177,7 +180,7 @@ case "$1" in
 
         backup)
                 echo "$DESC ($VERSION)"
-                log "Backup not yet implemented!"
+                logcrit "Backup not yet implemented!"
                 exit 1
                 ;;
         
@@ -187,9 +190,9 @@ case "$1" in
                 test_config || exit $?
                 if [ -z "$2" ]; then
                     read -r -p "Do you want to save all places [y/N] ?" confirm
-                    case $confirm in
+                    case "$confirm" in
                         [yY][eE][sS]|[yY])
-                            log "Saving all places not yet implemented."
+                            logcrit "Saving all places not yet implemented."
                             #get_place_save_command # TODO : Il faut parser chaque place avant
                             sh -c "$SAVE_COMMAND" || exit 1
                             ;;
@@ -209,27 +212,30 @@ case "$1" in
                         if [ "$PLACE_NAME" = "$2" ]; then
                             place_found=1
                             get_place_save_command
-                            log "$SAVE_COMMAND"
+                            loginfo "$SAVE_COMMAND"
                             sh -c "$SAVE_COMMAND" || exit 1
                         fi
                         
                     }; done
-                    [ $place_found -eq 0 ] && log "Place $2 not found!" && exit 1
+                    [ $place_found -eq 0 ] && logerror "Place $2 not found!" && exit 1
                 fi
                 
                 ;;
+        clean)
+                logcrit "Cleaning not implemented!"
                 
+                ;;
         configtest|testconfig)
-                log "Testing $DESC configuration: "
+                loginfo "Testing $DESC configuration: "
                 if test_config; then
-                        log "$NAME."
+                        loginfo "$NAME ok."
                 else
                         exit $?
                 fi
                 ;;
 
         *)
-                echo "Usage: $NAME {update|save [place]|backup|configtest}" >&2
+                echo "Usage: $NAME {update|save [place]|backup|configtest|clean}" >&2
                 exit 1
                 ;;
 esac
