@@ -272,9 +272,13 @@ case "$1" in
                         exit $?
                 fi
                 ;;
+        list)
+                test_config "list"
+                [ $? ] && logerror "Error...?"
+                ;;
 
         *)
-                echo "Usage: $NAME {update|save [place]|backup|configtest|clean}" >&2
+                echo "Usage: $NAME {update|save [place]|backup|configtest|list|clean}" >&2
                 exit 1
                 ;;
 esac
